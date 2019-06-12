@@ -736,22 +736,31 @@ SOKOL_API_DECL int sapp_height(void);
 SOKOL_API_DECL bool sapp_high_dpi(void);
 /* returns the dpi scaling factor (window pixels to framebuffer pixels) */
 SOKOL_API_DECL float sapp_dpi_scale(void);
-/* show or hide the mobile device onscreen keyboard */
-SOKOL_API_DECL void sapp_show_keyboard(bool visible);
-/* return true if the mobile device onscreen keyboard is currently shown */
-SOKOL_API_DECL bool sapp_keyboard_shown(void);
 /* return the userdata pointer optionally provided in sapp_desc */
 SOKOL_API_DECL void* sapp_userdata(void);
 /* return a copy of the sapp_desc structure */
 SOKOL_API_DECL sapp_desc sapp_query_desc(void);
+/* get the current frame counter (for comparison with sapp_event.frame_count) */
+SOKOL_API_DECL uint64_t sapp_frame_count(void);
+
+/* show or hide the mobile device onscreen keyboard */
+SOKOL_API_DECL void sapp_show_keyboard(bool visible);
+/* return true if the mobile device onscreen keyboard is currently shown */
+SOKOL_API_DECL bool sapp_keyboard_shown(void);
+
 /* initiate a "soft quit" (sends SAPP_EVENTTYPE_QUIT_REQUESTED) */
 SOKOL_API_DECL void sapp_request_quit(void);
 /* cancel a pending quit (when SAPP_EVENTTYPE_QUIT_REQUESTED has been received) */
 SOKOL_API_DECL void sapp_cancel_quit(void);
 /* intiate a "hard quit" (quit application without sending SAPP_EVENTTYPE_QUIT_REQUSTED) */
 SOKOL_API_DECL void sapp_quit(void);
-/* get the current frame counter (for comparison with sapp_event.frame_count) */
-SOKOL_API_DECL uint64_t sapp_frame_count(void);
+
+/* enable or disable pointer lock at the earliest possible time */
+SOKOL_API_DECL void sapp_request_pointer_lock(bool lock);
+/* return true if a pointer lock has been requested */
+SOKOL_API_DECL bool sapp_pointer_lock_requested(void);
+/* return true if pointer lock is actually active */
+SOKOL_API_DECL bool sapp_pointer_locked(void);
 
 /* special run-function for SOKOL_NO_ENTRY (in standard mode this is an empty stub) */
 SOKOL_API_DECL int sapp_run(const sapp_desc* desc);
@@ -919,6 +928,8 @@ typedef struct {
     bool cleanup_called;
     bool quit_requested;
     bool quit_ordered;
+    bool pointer_lock_requested;
+    bool pointer_locked;
     const char* html5_canvas_name;
     bool html5_ask_leave_site;
     char window_title[_SAPP_MAX_TITLE_LENGTH];      /* UTF-8 */
@@ -1112,6 +1123,7 @@ static NSOpenGLPixelFormat* _sapp_macos_glpixelformat_obj;
 static NSTimer* _sapp_macos_timer_obj;
 #endif
 static uint32_t _sapp_macos_flags_changed_store;
+static NSCursor* _sapp_macos_disabled_cursor;
 
 _SOKOL_PRIVATE void _sapp_macos_init_keytable(void) {
     _sapp.keycodes[0x1D] = SAPP_KEYCODE_0;
@@ -1230,6 +1242,11 @@ _SOKOL_PRIVATE void _sapp_macos_init_keytable(void) {
 _SOKOL_PRIVATE void _sapp_run(const sapp_desc* desc) {
     _sapp_init_state(desc);
     _sapp_macos_init_keytable();
+
+    /* a 'disabled' mouse cursor for pointer lock mode */
+    NSImage* data = [[NSImage alloc] initWithSize:NSMakeSize(16,16)];
+    _sapp_macos_disabled_cursor = [[NSCursor alloc] initWithImage:data hotSpot:NSZeroPoint];
+
     [NSApplication sharedApplication];
     NSApp.activationPolicy = NSApplicationActivationPolicyRegular;
     _sapp_macos_app_dlg_obj = [[_sapp_macos_app_delegate alloc] init];
@@ -1262,6 +1279,17 @@ _SOKOL_PRIVATE void _sapp_macos_update_dimensions(void) {
     _sapp.window_height = bounds.size.height;
     SOKOL_ASSERT((_sapp.framebuffer_width > 0) && (_sapp.framebuffer_height > 0));
     _sapp.dpi_scale = (float)_sapp.framebuffer_width / (float)_sapp.window_width;
+}
+
+_SOKOL_PRIVATE void _sapp_macos_update_cocoa_cursor_mode(void) {
+    if (_sapp.pointer_locked) {
+        [_sapp_macos_disabled_cursor set];
+        CGAssociateMouseAndMouseCursorPosition(false);
+    }
+    else {
+        [[NSCursor arrowCursor] set];
+        CGAssociateMouseAndMouseCursorPosition(true);
+    }
 }
 
 _SOKOL_PRIVATE void _sapp_macos_frame(void) {
@@ -6960,6 +6988,18 @@ SOKOL_API_IMPL void sapp_cancel_quit(void) {
 
 SOKOL_API_IMPL void sapp_quit(void) {
     _sapp.quit_ordered = true;
+}
+
+SOKOL_API_IMPL void sapp_request_pointer_lock(bool lock) {
+    _sapp.pointer_lock_requested = lock;
+}
+
+SOKOL_API_IMPL bool sapp_pointer_lock_requested(void) {
+    return _sapp.pointer_lock_requested;
+}
+
+SOKOL_API_IMPL bool sapp_pointer_locked(void) {
+    return _sapp.pointer_locked;
 }
 
 SOKOL_API_IMPL const void* sapp_metal_get_device(void) {
